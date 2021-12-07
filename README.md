@@ -1,6 +1,5 @@
-MySensors Library v2.3.0-alpha
-
-Please visit www.mysensors.org for more information
+Try to reduce many things to the bare minimum. Only for 8-Bit AVR Controller and MCP2515 Can Controller.
+A revised fork from https://github.com/AdamSlowik/MySensors 
 
 Documentation
 -------------

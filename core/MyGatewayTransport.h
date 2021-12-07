@@ -1,4 +1,4 @@
-/**
+/*
  * The MySensors Arduino library handles the wireless radio link and protocol
  * between your home built sensors/actuators and HA controller of choice.
  * The sensors forms a self healing radio network with optional repeaters. Each
@@ -7,7 +7,7 @@
  *
  * Created by Tomas Hozza <thozza@gmail.com>
  * Copyright (C) 2015  Tomas Hozza
- * Full contributor list: https://github.com/mysensors/Arduino/graphs/contributors
+ * Full contributor list: https://github.com/mysensors/MySensors/graphs/contributors
  *
  * Documentation: http://www.mysensors.org
  * Support Forum: http://forum.mysensors.org
@@ -51,9 +51,10 @@
 * | | GWT | TPS   | ETH OK                    | Connected to network
 * |!| GWT | TPS   | ETH FAIL                  | Connection failed
 * | | GWT | IMQ   | TOPIC=%%s,MSG RECEIVE     | MQTT message received on topic [%%s]
-* | | GWT | RMQ   | MQTT RECONNECT            | Reconnecting to MQTT broker
-* | | GWT | RMQ   | MQTT CONNECTED            | Connected to MQTT broker
-* | | GWT | TPC   | CONNECTING...             | Connecting to MQTT broker
+* | | GWT | RMQ   | CONNECTING...             | Connecting to MQTT broker
+* | | GWT | RMQ   | OK                        | Connected to MQTT broker
+* |!| GWT | RMQ   | FAIL                      | Connection to MQTT broker failed
+* | | GWT | TPC   | CONNECTING...             | Obtaining IP address
 * | | GWT | TPC   | IP=%%s                    | IP address [%%s] obtained
 * |!| GWT | TPC   | DHCP FAIL                 | DHCP request failed
 * | | GWT | RFC   | C=%%d,MSG=%%s             | Received message [%%s] from client [%%d]

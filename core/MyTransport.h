@@ -6,8 +6,8 @@
  * network topology allowing messages to be routed to nodes.
  *
  * Created by Henrik Ekblad <henrik.ekblad@mysensors.org>
- * Copyright (C) 2013-2017 Sensnology AB
- * Full contributor list: https://github.com/mysensors/Arduino/graphs/contributors
+ * Copyright (C) 2013-2020 Sensnology AB
+ * Full contributor list: https://github.com/mysensors/MySensors/graphs/contributors
  *
  * Documentation: http://www.mysensors.org
  * Support Forum: http://forum.mysensors.org
@@ -91,8 +91,8 @@
 * |!| TSF | SID   | FAIL,ID=%%d								| Assigned ID is invalid
 * | | TSF | PNG   | SEND,TO=%%d								| Send ping to destination (TO)
 * | | TSF | WUR   | MS=%%lu										| Wait until transport ready, timeout (MS)
-* | | TSF | MSG   | ACK REQ										| ACK message requested
-* | | TSF | MSG   | ACK												| ACK message, do not proceed but forward to callback
+* | | TSF | MSG   | ECHO REQ										| ECHO message requested
+* | | TSF | MSG   | ECHO												| ECHO message, do not proceed but forward to callback
 * | | TSF | MSG   | FPAR RES,ID=%%d,D=%%d			| Response to find parent received from node (ID) with distance (D) to GW
 * | | TSF | MSG   | FPAR PREF FOUND						| Preferred parent found, i.e. parent defined via MY_PARENT_NODE_ID
 * | | TSF | MSG   | FPAR OK,ID=%%d,D=%%d			| Find parent response from node (ID) is valid, distance (D) to GW
@@ -103,10 +103,9 @@
 * | | TSF | MSG   | BC												| Broadcast message received
 * | | TSF | MSG   | GWL OK										| Link to GW ok
 * | | TSF | MSG   | FWD BC MSG								| Controlled broadcast message forwarding
+* | | TSF | MSG   | RCV CB										| Hand over message to @ref receive() callback function
 * | | TSF | MSG   | REL MSG										| Relay message
 * | | TSF | MSG   | REL PxNG,HP=%%d						| Relay PING/PONG message, increment hop counter (HP)
-* |!| TSF | MSG   | LEN,%%d!=%%d							| Invalid message length, (actual!=expected)
-* |!| TSF | MSG   | PVER,%%d!=%%d							| Message protocol version mismatch (actual!=expected)
 * |!| TSF | MSG   | SIGN VERIFY FAIL					| Signing verification failed
 * |!| TSF | MSG   | REL MSG,NORP							| Node received a message for relaying, but node is not a repeater, message skipped
 * |!| TSF | MSG   | SIGN FAIL									| Signing message failed
@@ -119,6 +118,8 @@
 * | | TSF | SRT   | OK												| Saving routing table successful
 * |!| TSF | RTE   | FPAR ACTIVE								| Finding parent active, message not sent
 * |!| TSF | RTE   | DST %%d UNKNOWN						| Routing for destination (DST) unknown, send message to parent
+* | | TSF | RTE   | N2N OK										| Node-to-node communication succeeded
+* |!| TSF | RTE   | N2N FAIL									| Node-to-node communication failed, handing over to parent for re-routing
 * | | TSF | RRT   | ROUTE N=%%d,R=%%d					| Routing table, messages to node (N) are routed via node (R)
 * |!| TSF | SND   | TNR												| Transport not ready, message cannot be sent
 * | | TSF | TDI   | TSL												| Set transport to sleep
@@ -151,6 +152,46 @@
 * - <b>sg</b>=signing flag
 * - <b>ft</b>=failed uplink transmission counter
 * - <b>st</b>=send status, OK=success, NACK=no radio ACK received
+*
+* @startuml
+* state top as "Transport" {
+* state Init
+* state Failure
+* state Ready
+* state Parent
+* state ID
+* state Uplink
+* }
+*
+* [*] --> Init
+* Init : entry / Read config from eeprom
+* Init --> Failure : [! transportInit()\n|| ID == 0\n|| ID == 255 ]
+* Init --> Ready : [MY_GATEWAY_FEATURE]
+* Init --> Parent : [else]
+*
+* Parent : entry / Broadcast Find Parent
+* Parent --> ID : [MY_PARENT_NODE_IS_STATIC\n|| MY_PASSIVE_NODE\n|| Parent found]
+* Parent --> Parent : [timeout\n&& retries left]
+* Parent --> Failure : [timeout\n&& no retries left]
+*
+* ID : entry / Request Node ID
+* ID --> Uplink : [ID valid]
+* ID --> ID : [timeout\n&& retries left]
+* ID --> Failure : [timeout\n&& no retries left]
+*
+* Uplink : entry / Check uplink (PING)
+* Uplink --> Uplink : [timeout\n&& retries left]
+* Uplink --> Parent : [timeout\n&& no retries left]
+* Uplink --> Ready : [MY_TRANSPORT_UPLINK_CHECK_DISABLED\n|| Uplink ok (PONG)]
+*
+* Ready : entry / Transport ready callback
+* Ready : MY_GATEWAY_FEATURE && Network discovery required / Send discovery
+* Ready --> Parent : [!MY_PARENT_NODE_IS_STATIC\n&& Uplink failure overflow]
+*
+* Failure : entry / Disable transport
+* Failure --> Init : [timeout]
+* top --> Failure : [MY_TRANSPORT_SANITY_CHECK\n&& !transportSanityCheck]
+* @enduml
 *
 * @brief API declaration for MyTransport
 *
@@ -189,13 +230,13 @@
 #define MY_TRANSPORT_STATE_RETRIES				(3u)			//!< retries before switching to FAILURE
 #endif
 
-#define AUTO						(255u)			//!< ID 255 is reserved
+#define AUTO									(255u)			//!< ID 255 is reserved
 #define BROADCAST_ADDRESS			(255u)			//!< broadcasts are addressed to ID 255
 #define DISTANCE_INVALID			(255u)			//!< invalid distance when searching for parent
-#define MAX_HOPS					(254u)			//!< maximal number of hops for ping/pong
-#define INVALID_HOPS				(255u)			//!< invalid hops
-#define MAX_SUBSEQ_MSGS				(5u)			//!< Maximum number of subsequently processed messages in FIFO (to prevent transport deadlock if HW issue)
-#define UPLINK_QUALITY_WEIGHT		(0.05f)			//!< UPLINK_QUALITY_WEIGHT
+#define MAX_HOPS							(254u)			//!< maximal number of hops for ping/pong
+#define INVALID_HOPS					(255u)			//!< invalid hops
+#define MAX_SUBSEQ_MSGS				(5u)				//!< Maximum number of subsequently processed messages in FIFO (to prevent transport deadlock if HW issue)
+#define UPLINK_QUALITY_WEIGHT	(0.05f)			//!< UPLINK_QUALITY_WEIGHT
 
 
 // parent node check
@@ -206,21 +247,6 @@
 #define _autoFindParent (bool)(MY_PARENT_NODE_ID == AUTO)				//!<  returns true if static parent id is undefined
 #define isValidDistance(_distance) (bool)(_distance!=DISTANCE_INVALID)	//!<  returns true if distance is valid
 #define isValidParent(_parent) (bool)(_parent != AUTO)					//!<  returns true if parent is valid
-
-// RX queue ==> shift to HAL
-#if defined(MY_RX_MESSAGE_BUFFER_FEATURE)
-#if defined(MY_RADIO_RFM69)
-#error Receive message buffering not supported for RFM69!
-#endif
-#if defined(MY_RS485)
-#error Receive message buffering not supported for RS485!
-#endif
-#if defined(MY_RADIO_NRF5_ESB)
-#error Receive message buffering not supported for NRF5 radio! Please define MY_NRF5_RX_BUFFER_SIZE
-#endif
-#elif !defined(MY_RX_MESSAGE_BUFFER_FEATURE) && defined(MY_RX_MESSAGE_BUFFER_SIZE)
-#error Receive message buffering requires message buffering feature enabled!
-#endif
 
 /**
  * @brief Callback type
@@ -234,10 +260,10 @@ typedef void(*transportCallback_t)(void);
  */
 typedef struct {
 	uint8_t nodeId;								//!< Current node id
-	uint8_t parentNodeId;						//!< Where this node sends its messages
-	uint8_t distanceGW;							//!< This nodes distance to sensor net gateway (number of hops)
-	uint8_t passiveMode : 1;					//!< Passive mode
-	uint8_t reserved : 7;						//!< Reserved
+	uint8_t parentNodeId;					//!< Where this node sends its messages
+	uint8_t distanceGW;						//!< This nodes distance to sensor net gateway (number of hops)
+	uint8_t passiveMode : 1;			//!< Passive mode
+	uint8_t reserved : 7;					//!< Reserved
 } transportConfig_t;
 
 /**
@@ -247,16 +273,16 @@ typedef struct {
  */
 typedef struct {
 	void(*Transition)(void);					//!< state transition function
-	void(*Update)(void);						//!< state update function
+	void(*Update)(void);							//!< state update function
 } transportState_t;
 /**
-* @brief
+* @brief Datatype for internal RSSI storage
 */
 typedef int16_t transportRSSI_t;				//!< Datatype for internal RSSI storage
 
 // helper macro for conversion
-#define transportInternalToRSSI(__value)	((int16_t)__value>>4)				//!< Convert internal RSSI to RSSI
-#define transportRSSItoInternal(__value)	((transportRSSI_t)__value<<4)		//!< Convert RSSI to internal RSSI
+#define transportInternalToRSSI(__value)	((int16_t)__value >> 4)				//!< Convert internal RSSI to RSSI
+#define transportRSSItoInternal(__value)	((transportRSSI_t)__value << 4)		//!< Convert RSSI to internal RSSI
 
 /**
  * @brief Status variables and SM state
@@ -265,32 +291,27 @@ typedef int16_t transportRSSI_t;				//!< Datatype for internal RSSI storage
  */
 typedef struct {
 	// SM variables
-	transportState_t* currentState;			//!< pointer to current FSM state
-	uint32_t stateEnter;					//!< state enter timepoint
+	transportState_t *currentState;					//!< pointer to current FSM state
+	uint32_t stateEnter;										//!< state enter timepoint
 	// general transport variables
-	uint32_t lastUplinkCheck;				//!< last uplink check, required to prevent GW flooding
+	uint32_t lastUplinkCheck;								//!< last uplink check, required to prevent GW flooding
 	// 8 bits
-	bool findingParentNode : 1;				//!< flag finding parent node is active
-	bool preferredParentFound : 1;			//!< flag preferred parent found
-	bool uplinkOk : 1;						//!< flag uplink ok
-	bool pingActive : 1;					//!< flag ping active
-	bool transportActive : 1;				//!< flag transport active
-	uint8_t stateRetries : 3;				//!< retries / state re-enter (max 7)
+	bool findingParentNode : 1;							//!< flag finding parent node is active
+	bool preferredParentFound : 1;					//!< flag preferred parent found
+	bool uplinkOk : 1;											//!< flag uplink ok
+	bool pingActive : 1;										//!< flag ping active
+	bool transportActive : 1;								//!< flag transport active
+	uint8_t stateRetries : 3;								//!< retries / state re-enter (max 7)
 	// 8 bits
 	uint8_t failedUplinkTransmissions : 4;	//!< counter failed uplink transmissions (max 15)
-	uint8_t failureCounter : 3;				//!< counter for TSM failures (max 7)
-	bool msgReceived : 1;					//!< flag message received
-
-	uint8_t pingResponse;					//!< stores I_PONG hops
-	transportRSSI_t uplinkQualityRSSI;		//!< Uplink quality, internal RSSI representation
+	uint8_t failureCounter : 3;							//!< counter for TSM failures (max 7)
+	bool msgReceived : 1;										//!< flag message received
+	uint8_t pingResponse;										//!< stores I_PONG hops
+#if defined(MY_SIGNAL_REPORT_ENABLED)
+	transportRSSI_t uplinkQualityRSSI;			//!< Uplink quality, internal RSSI representation
+#endif
 } transportSM_t;
 
-/**
-* @brief RAM routing table
-*/
-typedef struct {
-	uint8_t route[SIZE_ROUTES];				//!< route for node
-} routingTable_t;
 
 // PRIVATE functions
 
@@ -346,7 +367,7 @@ void stFailureUpdate(void);
 * @brief Switch SM state
 * @param newState New state to switch SM to
 */
-void transportSwitchSM(transportState_t& newState);
+void transportSwitchSM(transportState_t &newState);
 /**
 * @brief Update SM state
 */
@@ -428,7 +449,7 @@ bool transportWaitUntilReady(const uint32_t waitingMS = 0);
 /**
 * @brief Initialize transport and SM
 */
-void transportInitialize(void);
+void transportInitialise(void);
 /**
 * @brief Process FIFO msg and update SM
 */
@@ -460,7 +481,8 @@ void resetMessageReceived(void);
 /**
 * @brief Clear routing table
 */
-void transportClearRoutingTable(void);
+
+//void transportClearRoutingTable(void);
 /**
 * @brief Return heart beat
 * @return MS in current state
@@ -471,27 +493,27 @@ uint32_t transportGetHeartbeat(void);
 * Only for GW devices with enough RAM, i.e. ESP8266, RPI Sensebender GW, etc.
 * Atmega328 has only limited amount of RAM
 */
-void transportLoadRoutingTable(void);
+//void transportLoadRoutingTable(void);
 /**
 * @brief Save routing table to EEPROM.
 */
-void transportSaveRoutingTable(void);
+//void transportSaveRoutingTable(void);
 /**
 * @brief Update routing table
 * @param node
 * @param route
 */
-void transportSetRoute(const uint8_t node, const uint8_t route);
+//void transportSetRoute(const uint8_t node, const uint8_t route);
 /**
 * @brief Load route to node
 * @param node
 * @return route to node
 */
-uint8_t transportGetRoute(const uint8_t node);
+//uint8_t transportGetRoute(const uint8_t node);
 /**
 * @brief Reports content of routing table
 */
-void transportReportRoutingTable(void);
+//void transportReportRoutingTable(void);
 /**
 * @brief Get node ID
 * @return node ID
@@ -512,14 +534,7 @@ uint8_t transportGetDistanceGW(void);
 * @param OnOff
 */
 void transportTogglePassiveMode(const bool OnOff);
-/**
-* @brief Disable transport, if xxx_POWER_PIN is defined, transport is powered down, else send to sleep
-*/
-void transportDisable(void);
-/**
-* @brief Reinitialise transport. Put transport to standby - If xxx_POWER_PIN set, power up and go to standby
-*/
-void transportReInitialise(void);
+
 /**
 * @brief Get transport signal report
 * @param command:
@@ -532,14 +547,14 @@ void transportReInitialise(void);
 * U = Uplink quality (via ACK from parent node), avg. RSSI
 * @return Signal report (if report is not available, INVALID_RSSI, INVALID_SNR, INVALID_PERCENT, or INVALID_LEVEL is sent instead)
 */
-int16_t transportSignalReport(const char command);
+int16_t transportSignalReport(const char command) __attribute__((unused));
 
 /**
 * @brief Get transport signal report
 * @param signalReport
 * @return report
 */
-int16_t transportGetSignalReport(const signalReport_t signalReport);
+int16_t transportGetSignalReport(const signalReport_t signalReport) __attribute__((unused));
 
 #endif // MyTransport_h
 /** @}*/

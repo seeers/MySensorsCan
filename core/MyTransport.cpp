@@ -1,4 +1,4 @@
-﻿/*
+/*
  * The MySensors Arduino library handles the wireless radio link and protocol
  * between your home built sensors/actuators and HA controller of choice.
  * The sensors forms a self healing radio network with optional repeaters. Each
@@ -6,8 +6,8 @@
  * network topology allowing messages to be routed to nodes.
  *
  * Created by Henrik Ekblad <henrik.ekblad@mysensors.org>
- * Copyright (C) 2013-2017 Sensnology AB
- * Full contributor list: https://github.com/mysensors/Arduino/graphs/contributors
+ * Copyright (C) 2013-2020 Sensnology AB
+ * Full contributor list: https://github.com/mysensors/MySensors/graphs/contributors
  *
  * Documentation: http://www.mysensors.org
  * Support Forum: http://forum.mysensors.org
@@ -22,7 +22,7 @@
 // debug
 #if defined(MY_DEBUG_VERBOSE_TRANSPORT)
 #define TRANSPORT_DEBUG(x,...) DEBUG_OUTPUT(x, ##__VA_ARGS__)	//!< debug
-extern char _convBuf[MAX_PAYLOAD * 2 + 1];
+extern char _convBuf[MAX_PAYLOAD_SIZE * 2 + 1];
 #else
 #define TRANSPORT_DEBUG(x,...)	//!< debug NULL
 #endif
@@ -54,10 +54,7 @@ static uint8_t _transportToken = AUTO;
 extern MyMessage _msg;		// incoming message
 extern MyMessage _msgTmp;	// outgoing message
 
-#if defined(MY_RAM_ROUTING_TABLE_ENABLED)
-static routingTable_t _transportRoutingTable;		//!< routing table
-static uint32_t _lastRoutingTableSave;			//!< last routing table dump
-#endif
+
 
 // regular sanity check, activated by default on GW and repeater nodes
 #if defined(MY_TRANSPORT_SANITY_CHECK)
@@ -67,7 +64,7 @@ static uint32_t _lastSanityCheck;		//!< last sanity check
 // regular network discovery, sends I_DISCOVER_REQUESTS to update routing table
 // sufficient to have GW triggering requests to also update repeater nodes
 #if defined(MY_GATEWAY_FEATURE)
-static uint32_t _lastNetworkDiscovery;	//! last network discovery
+static uint32_t _lastNetworkDiscovery;	//!< last network discovery
 #endif
 
 // stInit: initialise transport HW
@@ -77,27 +74,27 @@ void stInitTransition(void)
 	// initialise status variables
 	_transportSM.pingActive = false;
 	_transportSM.transportActive = false;
-	_transportSM.lastUplinkCheck = 0ul;
+	_transportSM.lastUplinkCheck = 0;
 
 #if defined(MY_TRANSPORT_SANITY_CHECK)
 	_lastSanityCheck = hwMillis();
 #endif
 #if defined(MY_GATEWAY_FEATURE)
-	_lastNetworkDiscovery = 0ul;
+	_lastNetworkDiscovery = 0;
 #endif
 #if defined(MY_RAM_ROUTING_TABLE_ENABLED)
 	_lastRoutingTableSave = hwMillis();
 #endif
 
 	// Read node settings (ID, parent ID, GW distance) from EEPROM
-	hwReadConfigBlock((void*)&_transportConfig, (void*)EEPROM_NODE_ID_ADDRESS,
-	                  sizeof(transportConfig_t));
+	//hwReadConfigBlock((void *)&_transportConfig, (void *)EEPROM_NODE_ID_ADDRESS,
+	//                  sizeof(transportConfig_t));
 }
 
 void stInitUpdate(void)
 {
 	// initialise radio
-	if (!transportInit()) {
+	if (!transportHALInit()) {
 		TRANSPORT_DEBUG(PSTR("!TSM:INIT:TSP FAIL\n"));
 		setIndication(INDICATION_ERR_INIT_TRANSPORT);
 		transportSwitchSM(stFailure);
@@ -116,7 +113,7 @@ void stInitUpdate(void)
 		_transportConfig.parentNodeId = GATEWAY_ADDRESS;
 		_transportConfig.distanceGW = 0u;
 		_transportConfig.nodeId = GATEWAY_ADDRESS;
-		transportSetAddress(GATEWAY_ADDRESS);
+		transportHALSetAddress(GATEWAY_ADDRESS);
 		// GW mode: skip FPAR,ID,UPL states
 		transportSwitchSM(stReady);
 #else
@@ -125,7 +122,7 @@ void stInitUpdate(void)
 			// Set static ID
 			_transportConfig.nodeId = (uint8_t)MY_NODE_ID;
 			// Save static ID to eeprom (for bootloader)
-			hwWriteConfig(EEPROM_NODE_ID_ADDRESS, (uint8_t)MY_NODE_ID);
+			//hwWriteConfig(EEPROM_NODE_ID_ADDRESS, (uint8_t)MY_NODE_ID);
 		}
 		// assign ID if set
 		if (_transportConfig.nodeId == AUTO || transportAssignNodeID(_transportConfig.nodeId)) {
@@ -152,7 +149,7 @@ void stParentTransition(void)
 	_transportConfig.distanceGW = 1u;	// assumption, CHKUPL:GWDC will update this variable
 	_transportConfig.parentNodeId = (uint8_t)MY_PARENT_NODE_ID;
 	// save parent ID to eeprom (for bootloader)
-	hwWriteConfig(EEPROM_PARENT_NODE_ID_ADDRESS, (uint8_t)MY_PARENT_NODE_ID);
+	//hwWriteConfig(EEPROM_PARENT_NODE_ID_ADDRESS, (uint8_t)MY_PARENT_NODE_ID);
 #else
 	_transportSM.findingParentNode = true;
 	_transportConfig.distanceGW = DISTANCE_INVALID;	// Set distance to max and invalidate parent node ID
@@ -305,7 +302,8 @@ void stReadyTransition(void)
 void stReadyUpdate(void)
 {
 #if defined(MY_GATEWAY_FEATURE)
-	if (hwMillis() - _lastNetworkDiscovery > MY_TRANSPORT_DISCOVERY_INTERVAL_MS) {
+	if (!_lastNetworkDiscovery ||
+	        (hwMillis() - _lastNetworkDiscovery > MY_TRANSPORT_DISCOVERY_INTERVAL_MS)) {
 		_lastNetworkDiscovery = hwMillis();
 		TRANSPORT_DEBUG(PSTR("TSM:READY:NWD REQ\n"));	// send transport network discovery
 		(void)transportRouteMessage(build(_msgTmp, BROADCAST_ADDRESS, NODE_SENSOR_ID, C_INTERNAL,
@@ -345,7 +343,7 @@ void stFailureTransition(void)
 	setIndication(INDICATION_ERR_INIT_TRANSPORT);
 #if defined(MY_SENSOR_NETWORK)
 	TRANSPORT_DEBUG(PSTR("TSM:FAIL:DIS\n"));	// disable transport, no need until re-init
-	transportDisable();		// sleep
+	
 #endif
 }
 
@@ -359,7 +357,7 @@ void stFailureUpdate(void)
 	}
 }
 
-void transportSwitchSM(transportState_t& newState)
+void transportSwitchSM(transportState_t &newState)
 {
 	if (_transportSM.currentState != &newState) {
 		_transportSM.stateRetries = 0u;	// state change, reset retry counter
@@ -410,36 +408,13 @@ void resetMessageReceived(void)
 	_transportSM.msgReceived = false;
 }
 
-
 void transportInitialise(void)
 {
 	_transportSM.failureCounter = 0u;	// reset failure counter
-	transportLoadRoutingTable();		// load routing table to RAM (if feature enabled)
+	//transportLoadRoutingTable();		// load routing table to RAM (if feature enabled)
 	// initial state
 	_transportSM.currentState = NULL;
 	transportSwitchSM(stInit);
-}
-
-void transportDisable(void)
-{
-	if (RADIO_CAN_POWER_OFF == true) {
-		TRANSPORT_DEBUG(PSTR("TSF:TDI:TPD\n"));	// power down transport
-		transportPowerDown();
-	} else {
-		TRANSPORT_DEBUG(PSTR("TSF:TDI:TSL\n"));	// send transport to sleep
-		transportSleep();
-	}
-}
-void transportReInitialise(void)
-{
-	if (RADIO_CAN_POWER_OFF == true) {
-		TRANSPORT_DEBUG(PSTR("TSF:TRI:TPU\n"));		// transport power up
-		transportPowerUp();
-		transportSetAddress(_transportConfig.nodeId);
-	} else {
-		TRANSPORT_DEBUG(PSTR("TSF:TRI:TSB\n"));		// transport standby
-		transportStandBy();
-	}
 }
 
 
@@ -465,7 +440,6 @@ void transportProcess(void)
 	// process transport FIFO
 	transportProcessFIFO();
 }
-
 
 bool transportCheckUplink(const bool force)
 {
@@ -498,23 +472,21 @@ bool transportAssignNodeID(const uint8_t newNodeId)
 	// verify if ID valid
 	if (newNodeId != GATEWAY_ADDRESS && newNodeId != AUTO) {
 		_transportConfig.nodeId = newNodeId;
-		transportSetAddress(newNodeId);
+		transportHALSetAddress(newNodeId);
 		// Write ID to EEPROM
-		hwWriteConfig(EEPROM_NODE_ID_ADDRESS, newNodeId);
+		//hwWriteConfig(EEPROM_NODE_ID_ADDRESS, newNodeId);
 		TRANSPORT_DEBUG(PSTR("TSF:SID:OK,ID=%" PRIu8 "\n"),newNodeId);	// Node ID assigned
 		return true;
 	} else {
 		TRANSPORT_DEBUG(PSTR("!TSF:SID:FAIL,ID=%" PRIu8 "\n"),newNodeId);	// ID is invalid, cannot assign ID
 		setIndication(INDICATION_ERR_NET_FULL);
-		_transportConfig.nodeId = AUTO;
 		return false;
 	}
 }
 
 bool transportRouteMessage(MyMessage &message)
 {
-	const uint8_t destination = message.destination;
-	uint8_t route = _transportConfig.parentNodeId;	// by default, all traffic is routed via parent node
+	const uint8_t destination = message.getDestination();
 
 	if (_transportSM.findingParentNode && destination != BROADCAST_ADDRESS) {
 		TRANSPORT_DEBUG(PSTR("!TSF:RTE:FPAR ACTIVE\n")); // find parent active, message not sent
@@ -522,34 +494,26 @@ bool transportRouteMessage(MyMessage &message)
 		return false;
 	}
 
+	uint8_t route;
+
 	if (destination == GATEWAY_ADDRESS) {
 		route = _transportConfig.parentNodeId;		// message to GW always routes via parent
 	} else if (destination == BROADCAST_ADDRESS) {
 		route = BROADCAST_ADDRESS;		// message to BC does not require routing
 	} else {
-#if defined(MY_REPEATER_FEATURE)
-		// destination not GW & not BC, get route
-		route = transportGetRoute(destination);
-		if (route == AUTO) {
-			TRANSPORT_DEBUG(PSTR("!TSF:RTE:%" PRIu8 " UNKNOWN\n"), destination);	// route unknown
-#if !defined(MY_GATEWAY_FEATURE)
-			if (message.last != _transportConfig.parentNodeId) {
-				// message not from parent, i.e. child node - route it to parent
-				route = _transportConfig.parentNodeId;
-			} else {
-				// route unknown and msg received from parent, send it to destination assuming in rx radius
-				route = destination;
+
+		if (destination > GATEWAY_ADDRESS && destination < BROADCAST_ADDRESS) {
+			// node2node traffic: assume node is in vincinity. If transmission fails, hand over to parent
+			if (transportSendWrite(destination, message)) {
+				TRANSPORT_DEBUG(PSTR("TSF:RTE:N2N OK\n"));
+				return true;
 			}
-#else
-			// if GW, all unknown destinations are directly addressed
-			route = destination;
-#endif
+			TRANSPORT_DEBUG(PSTR("!TSF:RTE:N2N FAIL\n"));
 		}
-#else
 		route = _transportConfig.parentNodeId;	// not a repeater, all traffic routed via parent
-#endif
+
 	}
-	// send message, HAL
+	// send message
 	const bool result = transportSendWrite(route, message);
 #if !defined(MY_GATEWAY_FEATURE)
 	// update counter
@@ -595,13 +559,13 @@ bool transportWait(const uint32_t waitingMS, const uint8_t cmd, const uint8_t ms
 {
 	const uint32_t enterMS = hwMillis();
 	// invalidate msg type
-	_msg.type = !msgType;
+	_msg.setType(!msgType);
 	bool expectedResponse = false;
 	while ((hwMillis() - enterMS < waitingMS) && !expectedResponse) {
 		// process incoming messages
 		transportProcessFIFO();
 		doYield();
-		expectedResponse = (mGetCommand(_msg) == cmd && _msg.type == msgType);
+		expectedResponse = (_msg.getCommand() == cmd && _msg.getType() == msgType);
 	}
 	return expectedResponse;
 }
@@ -637,109 +601,57 @@ uint32_t transportGetHeartbeat(void)
 
 void transportProcessMessage(void)
 {
-	// Manage signing timeout
-	(void)signerCheckTimer();
-	// receive message
+		// receive message
 	setIndication(INDICATION_RX);
-	uint8_t payloadLength = transportReceive((uint8_t *)
-	                        &_msg.last); // last is the first byte of the payload buffer
+	uint8_t payloadLength;
+	// last is the first byte of the payload buffer
+	if (!transportHALReceive(&_msg, &payloadLength)) {
+		return;
+	}
 	// get message length and limit size
-	const uint8_t msgLength = min(mGetLength(_msg), (uint8_t)MAX_PAYLOAD);
+	const uint8_t msgLength = _msg.getLength();
 	// calculate expected length
-	const uint8_t expectedMessageLength = HEADER_SIZE + (mGetSigned(_msg) ? MAX_PAYLOAD : msgLength);
-#if defined(MY_RF24_ENABLE_ENCRYPTION) || defined(MY_NRF5_ESB_ENABLE_ENCRYPTION) || defined(MY_RFM95_ENABLE_ENCRYPTION)
-	// payload length = a multiple of blocksize length for decrypted messages, i.e. cannot be used for payload length check
-	payloadLength = expectedMessageLength;
-#endif
-	const uint8_t command = mGetCommand(_msg);
-	const uint8_t type = _msg.type;
-	const uint8_t sender = _msg.sender;
-	const uint8_t last = _msg.last;
-	const uint8_t destination = _msg.destination;
+
+	const uint8_t command = _msg.getCommand();
+	const uint8_t type = _msg.getType();
+	const uint8_t sender = _msg.getSender();
+	const uint8_t last = _msg.getLast();
+	const uint8_t destination = _msg.getDestination();
 
 	TRANSPORT_DEBUG(PSTR("TSF:MSG:READ,%" PRIu8 "-%" PRIu8 "-%" PRIu8 ",s=%" PRIu8 ",c=%" PRIu8 ",t=%"
 	                     PRIu8 ",pt=%" PRIu8 ",l=%" PRIu8 ",sg=%" PRIu8 ":%s\n"),
-	                sender, last, destination, _msg.sensor, command, type, mGetPayloadType(_msg), msgLength,
-	                mGetSigned(_msg), ((command == C_INTERNAL &&
+	                sender, last, destination, _msg.getSensor(), command, type, _msg.getPayloadType(), msgLength,
+	                _msg.getSigned(), ((command == C_INTERNAL &&
 	                                    type == I_NONCE_RESPONSE) ? "<NONCE>" : _msg.getString(_convBuf)));
 
-	// Reject payloads with incorrect length
-	if (payloadLength != expectedMessageLength) {
-		setIndication(INDICATION_ERR_LENGTH);
-		TRANSPORT_DEBUG(PSTR("!TSF:MSG:LEN,%" PRIu8 "!=%" PRIu8 "\n"), payloadLength,
-		                expectedMessageLength); // invalid payload length
-		return;
-	}
+	
 
-	// Reject messages with incorrect protocol version
-	if (mGetVersion(_msg) != PROTOCOL_VERSION) {
-		setIndication(INDICATION_ERR_VERSION);
-		TRANSPORT_DEBUG(PSTR("!TSF:MSG:PVER,%" PRIu8 "!=%" PRIu8 "\n"), mGetVersion(_msg),
-		                PROTOCOL_VERSION);	// protocol version mismatch
-		return;
-	}
-
-	// Reject messages that do not pass verification
-	if (!signerVerifyMsg(_msg)) {
-		setIndication(INDICATION_ERR_SIGN);
-		TRANSPORT_DEBUG(PSTR("!TSF:MSG:SIGN VERIFY FAIL\n"));
-		return;
-	}
-
-	// update routing table if msg not from parent
-#if defined(MY_REPEATER_FEATURE)
-#if !defined(MY_GATEWAY_FEATURE)
-	if (last != _transportConfig.parentNodeId) {
-#else
-	// GW doesn't have parent
-	{
-#endif
-		// Message is from one of the child nodes and not sent from this node. Add it to routing table.
-		if (sender != _transportConfig.nodeId)
-		{
-			transportSetRoute(sender, last);
-		}
-	}
-#endif // MY_REPEATER_FEATURE
 
 	// set message received flag
 	_transportSM.msgReceived = true;
 
 	// Is message addressed to this node?
 	if (destination == _transportConfig.nodeId) {
-		// prevent buffer overflow by limiting max. possible message length (5 bits=31 bytes max) to MAX_PAYLOAD (25 bytes)
-		mSetLength(_msg, min(mGetLength(_msg),(uint8_t)MAX_PAYLOAD));
 		// null terminate data
 		_msg.data[msgLength] = 0u;
-		// Check if sender requests an ack back.
-		if (mGetRequestAck(_msg)) {
-			TRANSPORT_DEBUG(PSTR("TSF:MSG:ACK REQ\n"));	// ACK requested
+		// Check if sender requests an echo.
+		if (_msg.getRequestEcho()) {
+			TRANSPORT_DEBUG(PSTR("TSF:MSG:ECHO REQ\n"));	// ECHO requested
 			_msgTmp = _msg;	// Copy message
-			mSetRequestAck(_msgTmp,
-			               false); // Reply without ack flag (otherwise we would end up in an eternal loop)
-			mSetAck(_msgTmp, true); // set ACK flag
-			_msgTmp.sender = _transportConfig.nodeId;
-			_msgTmp.destination = sender;
-			// send ACK, use transportSendRoute since ACK reply is not internal, i.e. if !transportOK do not reply
+			// Reply without echo flag (otherwise we would end up in an eternal loop)
+			_msgTmp.setRequestEcho(false);
+			_msgTmp.setEcho(true); // set ECHO flag
+			_msgTmp.setSender(_transportConfig.nodeId);
+			_msgTmp.setDestination(sender);
+			// send ECHO, use transportSendRoute since ECHO reply is not internal, i.e. if !transportOK do not reply
 			(void)transportSendRoute(_msgTmp);
 		}
-		if(!mGetAck(_msg)) {
-			// only process if not ACK
+		if(!_msg.isEcho()) {
+			// only process if not ECHO
 			if (command == C_INTERNAL) {
-				// Process signing related internal messages
-				if (signerProcessInternal(_msg)) {
-					return; // Signer processing indicated no further action needed
-				}
+				// Process signing related internal messages			
 #if !defined(MY_GATEWAY_FEATURE)
 				if (type == I_ID_RESPONSE) {
-#if (MY_NODE_ID == AUTO)
-					// only active if node ID dynamic
-					if ((_msg.sensor == _transportToken) || (_msg.sensor == AUTO)) {
-						(void)transportAssignNodeID(_msg.getByte());
-					} else {
-						TRANSPORT_DEBUG(PSTR("!TSF:MSG:ID TK INVALID\n"));
-					}
-#endif
 					return; // no further processing required
 				}
 				if (type == I_FIND_PARENT_RESPONSE) {
@@ -766,7 +678,7 @@ void transportProcessMessage(void)
 					} else {
 						TRANSPORT_DEBUG(PSTR("!TSF:MSG:FPAR INACTIVE\n"));	// find parent response received, but inactive
 					}
-					return;
+					return; // no further processing required
 #endif
 				}
 #endif // !defined(MY_GATEWAY_FEATURE)
@@ -793,32 +705,30 @@ void transportProcessMessage(void)
 					}
 					return; // no further processing required
 				}
-				if (_processInternalMessages()) {
-					return; // no further processing required
-				}
 				if (type == I_SIGNAL_REPORT_REVERSE) {
 					return; // no further processing required
 				}
 				if (type == I_SIGNAL_REPORT_REQUEST) {
-					const char command = _msg.data[0];
 					int16_t value = INVALID_RSSI;
 #if defined(MY_SIGNAL_REPORT_ENABLED)
+					const char internalCommand = _msg.data[0];
 					if (_msg.data[1] != '!') {
-						value = transportSignalReport(command);
+						value = transportSignalReport(internalCommand);
 					} else {
 						// send request
-						if (transportRouteMessage(build(_msgTmp, _msg.last, NODE_SENSOR_ID, C_INTERNAL,
+						if (transportRouteMessage(build(_msgTmp, _msg.getLast(), NODE_SENSOR_ID, C_INTERNAL,
 						                                I_SIGNAL_REPORT_REVERSE).set((uint8_t)255))) {
 							// S>s, R>r, ascii delta = 32
-							value = transportSignalReport(command + 32);	// reverse
+							value = transportSignalReport(internalCommand + 32);	// reverse
 						};
 					}
-#else
-					(void)command;
 #endif
 					(void)transportRouteMessage(build(_msgTmp, GATEWAY_ADDRESS, NODE_SENSOR_ID, C_INTERNAL,
 					                                  I_SIGNAL_REPORT_RESPONSE).set(value));
-					return;
+					return; // no further processing required
+				}
+				if (_processInternalCoreMessage()) {
+					return; // no further processing required
 				}
 			} else if (command == C_STREAM) {
 #if defined(MY_OTA_FIRMWARE_FEATURE)
@@ -829,7 +739,7 @@ void transportProcessMessage(void)
 			}
 		} else {
 			TRANSPORT_DEBUG(
-			    PSTR("TSF:MSG:ACK\n")); // received message is ACK, no internal processing, handover to msg callback
+			    PSTR("TSF:MSG:ECHO\n")); // received message is ECHO, no internal processing, handover to msg callback
 		}
 #if defined(MY_OTA_LOG_RECEIVER_FEATURE)
 		if ((type == I_LOG_MESSAGE) && (command == C_INTERNAL)) {
@@ -909,6 +819,7 @@ void transportProcessMessage(void)
 			(void)gatewayTransportSend(_msg);
 #endif
 			if (receive) {
+				TRANSPORT_DEBUG(PSTR("TSF:MSG:RCV CB\n")); // hand over message to receive callback function
 				receive(_msg);
 			}
 		}
@@ -917,18 +828,18 @@ void transportProcessMessage(void)
 		// msg not to us and not BC, relay msg
 #if defined(MY_REPEATER_FEATURE)
 		if (isTransportReady()) {
-			TRANSPORT_DEBUG(PSTR("TSF:MSG:REL MSG\n"));	// relay msg
 			if (command == C_INTERNAL) {
 				if (type == I_PING || type == I_PONG) {
 					uint8_t hopsCnt = _msg.getByte();
+					TRANSPORT_DEBUG(PSTR("TSF:MSG:REL PxNG,HP=%" PRIu8 "\n"), hopsCnt);
 					if (hopsCnt != MAX_HOPS) {
-						TRANSPORT_DEBUG(PSTR("TSF:MSG:REL PxNG,HP=%" PRIu8 "\n"), hopsCnt);
 						hopsCnt++;
 						_msg.set(hopsCnt);
 					}
 				}
 			}
 			// Relay this message to another node
+			TRANSPORT_DEBUG(PSTR("TSF:MSG:REL MSG\n"));	// relay msg
 			(void)transportRouteMessage(_msg);
 		}
 #else
@@ -942,7 +853,7 @@ void transportInvokeSanityCheck(void)
 {
 	// Suppress this because the function may return a variable value in some configurations
 	// cppcheck-suppress knownConditionTrueFalse
-	if (!transportSanityCheck()) {
+	if (!transportHALSanityCheck()) {
 		TRANSPORT_DEBUG(PSTR("!TSF:SAN:FAIL\n"));	// sanity check fail
 		transportSwitchSM(stFailure);
 	} else {
@@ -966,7 +877,7 @@ void transportProcessFIFO(void)
 
 	uint8_t _processedMessages = MAX_SUBSEQ_MSGS;
 	// process all msgs in FIFO or counter exit
-	while (transportAvailable() && _processedMessages--) {
+	while (transportHALDataAvailable() && _processedMessages--) {
 		transportProcessMessage();
 	}
 #if defined(MY_OTA_FIRMWARE_FEATURE)
@@ -979,36 +890,31 @@ void transportProcessFIFO(void)
 
 bool transportSendWrite(const uint8_t to, MyMessage &message)
 {
-	message.last = _transportConfig.nodeId; // Update last
-	// sign message if required
-	if (!signerSignMsg(message)) {
-		TRANSPORT_DEBUG(PSTR("!TSF:MSG:SIGN FAIL\n"));
-		setIndication(INDICATION_ERR_SIGN);
-		return false;
-	}
+	message.setLast(_transportConfig.nodeId); // Update last
+
+
 
 	// msg length changes if signed
-	const uint8_t totalMsgLength = HEADER_SIZE + ( mGetSigned(message) ? MAX_PAYLOAD : mGetLength(
-	                                   message) );
-
+	const uint8_t totalMsgLength = HEADER_SIZE + ( message.getSigned() ? MAX_PAYLOAD_SIZE :
+	                               message.getLength() );
+	const bool noACK = _transportConfig.passiveMode || (to == BROADCAST_ADDRESS);
 	// send
 	setIndication(INDICATION_TX);
-	bool result = transportSend(to, &message, min((uint8_t)MAX_MESSAGE_LENGTH, totalMsgLength),
-	                            _transportConfig.passiveMode);
-	// broadcasting (workaround counterfeits)
-	result |= (to == BROADCAST_ADDRESS);
+	const bool result = transportHALSend(to, &message, totalMsgLength,
+	                                     noACK);
 
 	TRANSPORT_DEBUG(PSTR("%sTSF:MSG:SEND,%" PRIu8 "-%" PRIu8 "-%" PRIu8 "-%" PRIu8 ",s=%" PRIu8 ",c=%"
 	                     PRIu8 ",t=%" PRIu8 ",pt=%" PRIu8 ",l=%" PRIu8 ",sg=%" PRIu8 ",ft=%" PRIu8 ",st=%s:%s\n"),
-	                (_transportConfig.passiveMode ? "?" : result ? "" : "!"), message.sender, message.last, to,
-	                message.destination,
-	                message.sensor,
-	                mGetCommand(message), message.type,
-	                mGetPayloadType(message), mGetLength(message), mGetSigned(message),
+	                (noACK ? "?" : result ? "" : "!"), message.getSender(), message.getLast(),
+	                to,
+	                message.getDestination(),
+	                message.getSensor(),
+	                message.getCommand(), message.getType(),
+	                message.getPayloadType(), message.getLength(), message.getSigned(),
 	                _transportSM.failedUplinkTransmissions,
 	                (result ? "OK" : "NACK"),
-	                ((mGetCommand(message) == C_INTERNAL &&
-	                  message.type == I_NONCE_RESPONSE) ? "<NONCE>" : message.getString(_convBuf)));
+	                ((message.getCommand() == C_INTERNAL &&
+	                  message.getType() == I_NONCE_RESPONSE) ? "<NONCE>" : message.getString(_convBuf)));
 
 	return result;
 }
@@ -1031,7 +937,7 @@ uint8_t transportGetDistanceGW(void)
 	return _transportConfig.distanceGW;
 }
 
-
+/*
 void transportClearRoutingTable(void)
 {
 	for (uint16_t i = 0; i < SIZE_ROUTES; i++) {
@@ -1092,7 +998,7 @@ void transportReportRoutingTable(void)
 	}
 #endif
 }
-
+*/
 void transportTogglePassiveMode(const bool OnOff)
 {
 #if !defined (MY_PASSIVE_NODE)
@@ -1104,25 +1010,26 @@ void transportTogglePassiveMode(const bool OnOff)
 
 int16_t transportGetSignalReport(const signalReport_t signalReport)
 {
+#if defined(MY_SIGNAL_REPORT_ENABLED)
 	int16_t result;
 	switch (signalReport) {
 	case SR_RX_RSSI:
-		result = transportGetReceivingRSSI();
+		result = transportHALGetReceivingRSSI();
 		break;
 	case SR_TX_RSSI:
-		result = transportGetSendingRSSI();
+		result = transportHALGetSendingRSSI();
 		break;
 	case SR_RX_SNR:
-		result = transportGetReceivingSNR();
+		result = transportHALGetReceivingSNR();
 		break;
 	case SR_TX_SNR:
-		result = transportGetSendingSNR();
+		result = transportHALGetSendingSNR();
 		break;
 	case SR_TX_POWER_LEVEL:
-		result = transportGetTxPowerLevel();
+		result = transportHALGetTxPowerLevel();
 		break;
 	case SR_TX_POWER_PERCENT:
-		result = transportGetTxPowerPercent();
+		result = transportHALGetTxPowerPercent();
 		break;
 	case SR_UPLINK_QUALITY:
 		result = transportInternalToRSSI(_transportSM.uplinkQualityRSSI);
@@ -1132,10 +1039,15 @@ int16_t transportGetSignalReport(const signalReport_t signalReport)
 		break;
 	}
 	return result;
+#else
+	(void)signalReport;
+	return 0;
+#endif
 }
 
 int16_t transportSignalReport(const char command)
 {
+#if defined(MY_SIGNAL_REPORT_ENABLED)
 	signalReport_t reportCommand;
 	switch (command) {
 	case 'S':
@@ -1173,4 +1085,8 @@ int16_t transportSignalReport(const char command)
 	const uint16_t result = transportGetSignalReport(reportCommand);
 	TRANSPORT_DEBUG(PSTR("TSF:SIR:CMD=%" PRIu8 ",VAL=%" PRIu16 "\n"), reportCommand, result);
 	return result;
+#else
+	(void)command;
+	return 0;
+#endif
 }
