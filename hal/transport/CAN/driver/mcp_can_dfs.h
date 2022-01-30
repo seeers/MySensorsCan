@@ -42,7 +42,7 @@
 /*
  *   Begin mt
  */
-#define TIMEOUTVALUE    50
+#define TIMEOUTVALUE    200
 #define MCP_SIDH        0
 #define MCP_SIDL        1
 #define MCP_EID8        2
@@ -336,9 +336,15 @@
 #define MCP_16MHz_80kBPS_CFG2 (0xF6)
 #define MCP_16MHz_80kBPS_CFG3 (0x84)      /* Sample point at 75% */
 
-#define MCP_16MHz_50kBPS_CFG1 (0x47)      /* Increased SJW       */
-#define MCP_16MHz_50kBPS_CFG2 (0xF6)
-#define MCP_16MHz_50kBPS_CFG3 (0x84)      /* Sample point at 75% */
+//#define MCP_16MHz_50kBPS_CFG1 (0x47)      /* Increased SJW       */
+//#define MCP_16MHz_50kBPS_CFG2 (0xF6)
+//#define MCP_16MHz_50kBPS_CFG3 (0x84)      /* Sample point at 75% */
+
+#define MCP_16MHz_50kBPS_CFG1 (0xC7)      
+#define MCP_16MHz_50kBPS_CFG2 (0xB6)
+#define MCP_16MHz_50kBPS_CFG3 (0x04)     
+
+
 
 #define MCP_16MHz_40kBPS_CFG1 (0x49)      /* Increased SJW       */
 #define MCP_16MHz_40kBPS_CFG2 (0xF6)

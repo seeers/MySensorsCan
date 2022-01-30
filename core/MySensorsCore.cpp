@@ -149,17 +149,7 @@ void _begin(void)
 	ledsInit();
 #endif
 
-	
 
-	// Read latest received controller configuration from EEPROM
-	// Note: _coreConfig.isMetric is bool, hence empty EEPROM (=0xFF) evaluates to true (default)
-	//hwReadConfigBlock((void *)&_coreConfig.controllerConfig, (void *)EEPROM_CONTROLLER_CONFIG_ADDRESS,
-	//                  sizeof(controllerConfig_t));
-
-#if defined(MY_OTA_FIRMWARE_FEATURE)
-	// Read firmware config from EEPROM, i.e. type, version, CRC, blocks
-	readFirmwareSettings();
-#endif
 
 #if defined(MY_SENSOR_NETWORK)
 	// Save static parent ID in eeprom (used by bootloader)

@@ -74,7 +74,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 
-#define GATEWAY_ADDRESS					((uint8_t)0)		//!< Node ID for GW sketch
+#define GATEWAY_ADDRESS					((uint8_t)1)		//!< Node ID for GW sketch
 #define NODE_SENSOR_ID					((uint8_t)255)	//!< Node child is always created/presented when a node is started
 #define MY_CORE_VERSION					((uint8_t)2)		//!< core version
 #define MY_CORE_MIN_VERSION			((uint8_t)2)		//!< min core version required for compatibility

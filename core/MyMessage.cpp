@@ -38,7 +38,7 @@ MyMessage::MyMessage(const uint8_t _sensorId, const mysensors_data_t _dataType)
 
 void MyMessage::clear(void)
 {
-	this->last                 = 0u;
+	//this->last                 = 0u;
 	this->sender               = 0u;
 	this->destination          = GATEWAY_ADDRESS; // Gateway is default destination
 	this->version_length       = 0u;
@@ -82,7 +82,7 @@ MyMessage& MyMessage::setType(const uint8_t messageType)
 	this->type = messageType;
 	return *this;
 }
-
+/*
 uint8_t MyMessage::getLast(void) const
 {
 	return this->last;
@@ -93,7 +93,7 @@ MyMessage& MyMessage::setLast(const uint8_t lastId)
 	this->last = lastId;
 	return *this;
 }
-
+*/
 uint8_t MyMessage::getSender(void) const
 {
 	return this->sender;

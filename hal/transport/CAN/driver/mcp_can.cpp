@@ -311,6 +311,7 @@ INT8U MCP_CAN::mcp2515_configRate(const INT8U canSpeed, const INT8U canClock)
 			break;
 
 		case (CAN_50KBPS):                                              //  50Kbps
+			cfg1 = MCP_16MHz_50kBPS_CFG1;
 			cfg2 = MCP_16MHz_50kBPS_CFG2;
 			cfg3 = MCP_16MHz_50kBPS_CFG3;
 			break;

@@ -37,7 +37,7 @@
 #endif
 
 #define V2_MYS_HEADER_PROTOCOL_VERSION      (2u) //!< Protocol version
-#define V2_MYS_HEADER_SIZE                  (7u) //!< Header size
+#define V2_MYS_HEADER_SIZE                  (6u) //!< Header size
 #define V2_MYS_HEADER_MAX_MESSAGE_SIZE      (32u) //!< Max payload size
 
 #define V2_MYS_HEADER_VSL_VERSION_POS       (0) //!< bitfield position version
@@ -507,13 +507,13 @@ public:
 	* @brief Get last ID
 	* @return lastId
 	*/
-	uint8_t getLast(void) const;
+	//uint8_t getLast(void) const;
 
 	/**
 	 * @brief Set last ID
 	 * @param lastId
 	 */
-	MyMessage& setLast(const uint8_t lastId);
+	//MyMessage& setLast(const uint8_t lastId);
 
 	/**
 	* @brief Get sender ID
@@ -620,7 +620,7 @@ typedef union {
 	struct {
 
 #endif
-	uint8_t last;							//!< 8 bit - Id of last node this message passed
+	//uint8_t last;							//!< 8 bit - Id of last node this message passed
 	uint8_t sender;						//!< 8 bit - Id of sender node (origin)
 	uint8_t destination;			//!< 8 bit - Id of destination node
 

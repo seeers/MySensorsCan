@@ -32,7 +32,7 @@ bool protocolSerial2MyMessage(MyMessage &message, char *inputString)
 	uint8_t index = 0;
 	mysensors_command_t command = C_INVALID_7;
 	message.setSender(GATEWAY_ADDRESS);
-	message.setLast(GATEWAY_ADDRESS);
+	//message.setLast(GATEWAY_ADDRESS);
 	message.setEcho(false);
 
 	// Extract command data coming on serial line

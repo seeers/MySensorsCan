@@ -211,7 +211,7 @@ bool transportSend(const uint8_t to, const void *data, const uint8_t len, const 
 			if (currentFrame == noOfFrames-1)
 			return true;
 		} else {
-			CAN_DEBUG(PSTR("!CAN:SND:FAIL\n"));
+			CAN_DEBUG(PSTR("!CAN:SND:FAIL:sndStat%" PRIu8 "\n"),sndStat);
 			return false;
 		}
 	}

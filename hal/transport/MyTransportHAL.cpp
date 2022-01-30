@@ -69,7 +69,7 @@ bool transportHALSanityCheck(void)
 bool transportHALReceive(MyMessage *inMsg, uint8_t *msgLength)
 {
 	// set pointer to first byte of data structure
-	uint8_t *rx_data = &inMsg->last;
+	uint8_t *rx_data = &inMsg->sender;
 	uint8_t payloadLength = transportReceive((void *)rx_data);
 #if defined(MY_DEBUG_VERBOSE_TRANSPORT_HAL)
 	hwDebugBuf2Str((const uint8_t *)rx_data, payloadLength);
@@ -121,12 +121,13 @@ bool transportHALSend(const uint8_t nextRecipient, const MyMessage *outMsg, cons
 	/*hwDebugBuf2Str((const uint8_t *)outMsg->last, 1);
 	TRANSPORT_HAL_DEBUG(PSTR("THA:SND:lSG=%s\n"), hwDebugPrintStr);
 	hwDebugBuf2Str((const uint8_t *)outMsg, len);
-	*/TRANSPORT_HAL_DEBUG(PSTR("THA:SND:oSG=%s\n"), hwDebugPrintStr);
+	TRANSPORT_HAL_DEBUG(PSTR("THA:SND:oSG=%s\n"), hwDebugPrintStr);
 	hwDebugBuf2Str((const uint8_t *)&outMsg->last, len);
 	TRANSPORT_HAL_DEBUG(PSTR("THA:SND:MSG=%s\n"), hwDebugPrintStr);
+    */
 #endif
 
-	const uint8_t *tx_data = &outMsg->last;
+	const uint8_t *tx_data = &outMsg->sender;
 	const uint8_t finalLength = len;
 
 

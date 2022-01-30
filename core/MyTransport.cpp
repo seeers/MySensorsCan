@@ -82,9 +82,7 @@ void stInitTransition(void)
 #if defined(MY_GATEWAY_FEATURE)
 	_lastNetworkDiscovery = 0;
 #endif
-#if defined(MY_RAM_ROUTING_TABLE_ENABLED)
-	_lastRoutingTableSave = hwMillis();
-#endif
+
 
 	// Read node settings (ID, parent ID, GW distance) from EEPROM
 	//hwReadConfigBlock((void *)&_transportConfig, (void *)EEPROM_NODE_ID_ADDRESS,
@@ -167,31 +165,6 @@ void stParentUpdate(void)
 	// skipping find parent
 	setIndication(INDICATION_GOT_PARENT);
 	transportSwitchSM(stID);
-#else
-	if (transportTimeInState() > MY_TRANSPORT_STATE_TIMEOUT_MS || _transportSM.preferredParentFound) {
-		// timeout or preferred parent found
-		if (_transportConfig.parentNodeId != AUTO) {
-			// parent assigned
-			TRANSPORT_DEBUG(PSTR("TSM:FPAR:OK\n"));	// find parent ok
-			_transportSM.findingParentNode = false;
-			setIndication(INDICATION_GOT_PARENT);
-			// go to next state
-			transportSwitchSM(stID);
-		} else {
-			// timeout w/o reply or valid parent
-			if (_transportSM.stateRetries < MY_TRANSPORT_STATE_RETRIES) {
-				// retries left
-				TRANSPORT_DEBUG(PSTR("!TSM:FPAR:NO REPLY\n"));		// find parent, no reply
-				// reenter state
-				transportSwitchSM(stParent);
-			} else {
-				// no retries left, finding parent failed
-				TRANSPORT_DEBUG(PSTR("!TSM:FPAR:FAIL\n"));
-				setIndication(INDICATION_ERR_FIND_PARENT);
-				transportSwitchSM(stFailure);
-			}
-		}
-	}
 #endif
 }
 
@@ -524,13 +497,6 @@ bool transportRouteMessage(MyMessage &message)
 			_transportSM.failedUplinkTransmissions++;
 		} else {
 			_transportSM.failedUplinkTransmissions = 0u;
-#if defined(MY_SIGNAL_REPORT_ENABLED)
-			// update uplink quality monitor
-			const int16_t signalStrengthRSSI = transportGetSignalReport(SR_TX_RSSI);
-			_transportSM.uplinkQualityRSSI = static_cast<transportRSSI_t>((1 - UPLINK_QUALITY_WEIGHT) *
-			                                 _transportSM.uplinkQualityRSSI
-			                                 + (UPLINK_QUALITY_WEIGHT * transportRSSItoInternal(signalStrengthRSSI)));
-#endif
 		}
 	}
 #else
@@ -615,12 +581,12 @@ void transportProcessMessage(void)
 	const uint8_t command = _msg.getCommand();
 	const uint8_t type = _msg.getType();
 	const uint8_t sender = _msg.getSender();
-	const uint8_t last = _msg.getLast();
+	//const uint8_t last = _msg.getLast();
 	const uint8_t destination = _msg.getDestination();
 
 	TRANSPORT_DEBUG(PSTR("TSF:MSG:READ,%" PRIu8 "-%" PRIu8 "-%" PRIu8 ",s=%" PRIu8 ",c=%" PRIu8 ",t=%"
 	                     PRIu8 ",pt=%" PRIu8 ",l=%" PRIu8 ",sg=%" PRIu8 ":%s\n"),
-	                sender, last, destination, _msg.getSensor(), command, type, _msg.getPayloadType(), msgLength,
+	                sender, sender, destination, _msg.getSensor(), command, type, _msg.getPayloadType(), msgLength,
 	                _msg.getSigned(), ((command == C_INTERNAL &&
 	                                    type == I_NONCE_RESPONSE) ? "<NONCE>" : _msg.getString(_convBuf)));
 
@@ -710,19 +676,7 @@ void transportProcessMessage(void)
 				}
 				if (type == I_SIGNAL_REPORT_REQUEST) {
 					int16_t value = INVALID_RSSI;
-#if defined(MY_SIGNAL_REPORT_ENABLED)
-					const char internalCommand = _msg.data[0];
-					if (_msg.data[1] != '!') {
-						value = transportSignalReport(internalCommand);
-					} else {
-						// send request
-						if (transportRouteMessage(build(_msgTmp, _msg.getLast(), NODE_SENSOR_ID, C_INTERNAL,
-						                                I_SIGNAL_REPORT_REVERSE).set((uint8_t)255))) {
-							// S>s, R>r, ascii delta = 32
-							value = transportSignalReport(internalCommand + 32);	// reverse
-						};
-					}
-#endif
+
 					(void)transportRouteMessage(build(_msgTmp, GATEWAY_ADDRESS, NODE_SENSOR_ID, C_INTERNAL,
 					                                  I_SIGNAL_REPORT_RESPONSE).set(value));
 					return; // no further processing required
@@ -731,22 +685,13 @@ void transportProcessMessage(void)
 					return; // no further processing required
 				}
 			} else if (command == C_STREAM) {
-#if defined(MY_OTA_FIRMWARE_FEATURE)
-				if(firmwareOTAUpdateProcess()) {
-					return; // OTA FW update processing indicated no further action needed
-				}
-#endif
+
 			}
 		} else {
 			TRANSPORT_DEBUG(
 			    PSTR("TSF:MSG:ECHO\n")); // received message is ECHO, no internal processing, handover to msg callback
 		}
-#if defined(MY_OTA_LOG_RECEIVER_FEATURE)
-		if ((type == I_LOG_MESSAGE) && (command == C_INTERNAL)) {
-			OTALogPrint(_msg);
-			return; // no further processing required
-		}
-#endif //defined(MY_OTA_LOG_RECEIVER_FEATURE)
+
 #if defined(MY_GATEWAY_FEATURE)
 		// Hand over message to controller
 		(void)gatewayTransportSend(_msg);
@@ -761,23 +706,6 @@ void transportProcessMessage(void)
 			if (isTransportReady()) {
 				// only reply if node is fully operational
 				if (type == I_FIND_PARENT_REQUEST) {
-#if defined(MY_REPEATER_FEATURE)
-					if (sender != _transportConfig.parentNodeId) {	// no circular reference
-						TRANSPORT_DEBUG(PSTR("TSF:MSG:FPAR REQ,ID=%" PRIu8 "\n"), sender);	// FPAR: find parent request
-						// check if uplink functional - node can only be parent node if link to GW functional
-						// this also prevents circular references in case GW ooo
-						if (transportCheckUplink()) {
-							_transportSM.lastUplinkCheck = hwMillis();
-							TRANSPORT_DEBUG(PSTR("TSF:MSG:GWL OK\n")); // GW uplink ok
-							// random delay minimizes collisions
-							delay(hwMillis() & 0x3ff);
-							(void)transportRouteMessage(build(_msgTmp, sender, NODE_SENSOR_ID, C_INTERNAL,
-							                                  I_FIND_PARENT_RESPONSE).set(_transportConfig.distanceGW));
-						} else {
-							TRANSPORT_DEBUG(PSTR("!TSF:MSG:GWL FAIL\n")); // GW uplink fail, do not respond to parent request
-						}
-					}
-#endif
 					return; // no further processing required, do not forward
 				}
 			} // isTransportReady
@@ -786,7 +714,7 @@ void transportProcessMessage(void)
 			}
 #if !defined(MY_GATEWAY_FEATURE)
 			if (type == I_DISCOVER_REQUEST) {
-				if (last == _transportConfig.parentNodeId) {
+				if (sender == _transportConfig.parentNodeId) {
 					// random wait to minimize collisions
 					delay(hwMillis() & 0x3ff);
 					(void)transportRouteMessage(build(_msgTmp, sender, NODE_SENSOR_ID, C_INTERNAL,
@@ -797,20 +725,13 @@ void transportProcessMessage(void)
 #endif
 		}
 		// controlled BC relay
-#if defined(MY_REPEATER_FEATURE)
-		// controlled BC repeating: forward only if message received from parent and sender not self to prevent circular fwds
-		if(last == _transportConfig.parentNodeId && sender != _transportConfig.nodeId &&
-		        isTransportReady()) {
-			TRANSPORT_DEBUG(PSTR("TSF:MSG:FWD BC MSG\n")); // controlled broadcast msg forwarding
-			(void)transportRouteMessage(_msg);
-		}
-#endif
+
 
 		// Callback for BC, only for non-internal messages
 		if (command != C_INTERNAL) {
 #if !defined(MY_GATEWAY_FEATURE)
 			// only proceed if message received from parent
-			if (last != _transportConfig.parentNodeId) {
+			if (sender != _transportConfig.parentNodeId) {
 				return;
 			}
 #endif
@@ -826,27 +747,11 @@ void transportProcessMessage(void)
 
 	} else {
 		// msg not to us and not BC, relay msg
-#if defined(MY_REPEATER_FEATURE)
-		if (isTransportReady()) {
-			if (command == C_INTERNAL) {
-				if (type == I_PING || type == I_PONG) {
-					uint8_t hopsCnt = _msg.getByte();
-					TRANSPORT_DEBUG(PSTR("TSF:MSG:REL PxNG,HP=%" PRIu8 "\n"), hopsCnt);
-					if (hopsCnt != MAX_HOPS) {
-						hopsCnt++;
-						_msg.set(hopsCnt);
-					}
-				}
-			}
-			// Relay this message to another node
-			TRANSPORT_DEBUG(PSTR("TSF:MSG:REL MSG\n"));	// relay msg
-			(void)transportRouteMessage(_msg);
-		}
-#else
+
 		TRANSPORT_DEBUG(PSTR("!TSF:MSG:REL MSG,NREP\n"));	// message relaying request, but not a repeater
-#endif
+
 	}
-	(void)last;	//avoid cppcheck warning
+	//(void)last;	//avoid cppcheck warning
 }
 
 void transportInvokeSanityCheck(void)
@@ -890,7 +795,7 @@ void transportProcessFIFO(void)
 
 bool transportSendWrite(const uint8_t to, MyMessage &message)
 {
-	message.setLast(_transportConfig.nodeId); // Update last
+	//message.setLast(_transportConfig.nodeId); // Update last
 
 
 
@@ -905,7 +810,7 @@ bool transportSendWrite(const uint8_t to, MyMessage &message)
 
 	TRANSPORT_DEBUG(PSTR("%sTSF:MSG:SEND,%" PRIu8 "-%" PRIu8 "-%" PRIu8 "-%" PRIu8 ",s=%" PRIu8 ",c=%"
 	                     PRIu8 ",t=%" PRIu8 ",pt=%" PRIu8 ",l=%" PRIu8 ",sg=%" PRIu8 ",ft=%" PRIu8 ",st=%s:%s\n"),
-	                (noACK ? "?" : result ? "" : "!"), message.getSender(), message.getLast(),
+	                (noACK ? "?" : result ? "" : "!"), message.getSender(), message.getSender(),
 	                to,
 	                message.getDestination(),
 	                message.getSensor(),
@@ -937,68 +842,6 @@ uint8_t transportGetDistanceGW(void)
 	return _transportConfig.distanceGW;
 }
 
-/*
-void transportClearRoutingTable(void)
-{
-	for (uint16_t i = 0; i < SIZE_ROUTES; i++) {
-		transportSetRoute((uint8_t)i, BROADCAST_ADDRESS);
-	}
-	transportSaveRoutingTable();	// save cleared routing table to EEPROM (if feature enabled)
-	TRANSPORT_DEBUG(PSTR("TSF:CRT:OK\n"));	// clear routing table
-}
-
-void transportLoadRoutingTable(void)
-{
-#if defined(MY_RAM_ROUTING_TABLE_ENABLED)
-	hwReadConfigBlock((void*)&_transportRoutingTable.route, (void*)EEPROM_ROUTES_ADDRESS, SIZE_ROUTES);
-	TRANSPORT_DEBUG(PSTR("TSF:LRT:OK\n"));	//  load routing table
-#endif
-}
-
-void transportSaveRoutingTable(void)
-{
-#if defined(MY_RAM_ROUTING_TABLE_ENABLED)
-	hwWriteConfigBlock((void*)&_transportRoutingTable.route, (void*)EEPROM_ROUTES_ADDRESS, SIZE_ROUTES);
-	TRANSPORT_DEBUG(PSTR("TSF:SRT:OK\n"));	//  save routing table
-#endif
-}
-
-void transportSetRoute(const uint8_t node, const uint8_t route)
-{
-#if defined(MY_RAM_ROUTING_TABLE_ENABLED)
-	_transportRoutingTable.route[node] = route;
-#else
-	hwWriteConfig(EEPROM_ROUTES_ADDRESS + node, route);
-#endif
-}
-
-uint8_t transportGetRoute(const uint8_t node)
-{
-	uint8_t result;
-#if defined(MY_RAM_ROUTING_TABLE_ENABLED)
-	result = _transportRoutingTable.route[node];
-#else
-	result = hwReadConfig(EEPROM_ROUTES_ADDRESS + node);
-#endif
-	return result;
-}
-
-void transportReportRoutingTable(void)
-{
-#if defined(MY_REPEATER_FEATURE)
-	for (uint16_t cnt = 0; cnt < SIZE_ROUTES; cnt++) {
-		const uint8_t route = transportGetRoute(cnt);
-		if (route != BROADCAST_ADDRESS) {
-			TRANSPORT_DEBUG(PSTR("TSF:RRT:ROUTE N=%" PRIu8 ",R=%" PRIu8 "\n"), cnt, route);
-			uint8_t outBuf[2] = { (uint8_t)cnt,route };
-			(void)_sendRoute(build(_msgTmp, GATEWAY_ADDRESS, NODE_SENSOR_ID, C_INTERNAL, I_DEBUG).set(outBuf,
-			                 2));
-			wait(200);
-		}
-	}
-#endif
-}
-*/
 void transportTogglePassiveMode(const bool OnOff)
 {
 #if !defined (MY_PASSIVE_NODE)
@@ -1009,84 +852,15 @@ void transportTogglePassiveMode(const bool OnOff)
 }
 
 int16_t transportGetSignalReport(const signalReport_t signalReport)
-{
-#if defined(MY_SIGNAL_REPORT_ENABLED)
-	int16_t result;
-	switch (signalReport) {
-	case SR_RX_RSSI:
-		result = transportHALGetReceivingRSSI();
-		break;
-	case SR_TX_RSSI:
-		result = transportHALGetSendingRSSI();
-		break;
-	case SR_RX_SNR:
-		result = transportHALGetReceivingSNR();
-		break;
-	case SR_TX_SNR:
-		result = transportHALGetSendingSNR();
-		break;
-	case SR_TX_POWER_LEVEL:
-		result = transportHALGetTxPowerLevel();
-		break;
-	case SR_TX_POWER_PERCENT:
-		result = transportHALGetTxPowerPercent();
-		break;
-	case SR_UPLINK_QUALITY:
-		result = transportInternalToRSSI(_transportSM.uplinkQualityRSSI);
-		break;
-	default:
-		result = 0;
-		break;
-	}
-	return result;
-#else
+{	
 	(void)signalReport;
 	return 0;
-#endif
 }
 
 int16_t transportSignalReport(const char command)
 {
-#if defined(MY_SIGNAL_REPORT_ENABLED)
-	signalReport_t reportCommand;
-	switch (command) {
-	case 'S':
-		// SNR (if available) of incoming message
-		reportCommand = SR_RX_SNR;
-		break;
-	case 's':
-		// SNR (if available) of incoming ACK message
-		reportCommand = SR_TX_SNR;
-		break;
-	case 'R':
-		// RSSI (if available) of incoming message
-		reportCommand = SR_RX_RSSI;
-		break;
-	case 'r':
-		// RSSI (if available) of incoming ACK message
-		reportCommand = SR_TX_RSSI;
-		break;
-	case 'P':
-		// TX powerlevel in %
-		reportCommand = SR_TX_POWER_PERCENT;
-		break;
-	case 'T':
-		// TX powerlevel in dBm
-		reportCommand = SR_TX_POWER_LEVEL;
-		break;
-	case 'U':
-		// Uplink quality
-		reportCommand = SR_UPLINK_QUALITY;
-		break;
-	default:
-		reportCommand = SR_NOT_DEFINED;
-		break;
-	}
-	const uint16_t result = transportGetSignalReport(reportCommand);
-	TRANSPORT_DEBUG(PSTR("TSF:SIR:CMD=%" PRIu8 ",VAL=%" PRIu16 "\n"), reportCommand, result);
-	return result;
-#else
+
 	(void)command;
 	return 0;
-#endif
+
 }

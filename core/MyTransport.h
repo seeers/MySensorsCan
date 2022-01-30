@@ -231,7 +231,7 @@
 #endif
 
 #define AUTO									(255u)			//!< ID 255 is reserved
-#define BROADCAST_ADDRESS			(255u)			//!< broadcasts are addressed to ID 255
+#define BROADCAST_ADDRESS			(254u)			//!< broadcasts are addressed to ID 255 -> 254 for CAN!?
 #define DISTANCE_INVALID			(255u)			//!< invalid distance when searching for parent
 #define MAX_HOPS							(254u)			//!< maximal number of hops for ping/pong
 #define INVALID_HOPS					(255u)			//!< invalid hops

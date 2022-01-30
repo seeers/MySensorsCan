@@ -380,7 +380,7 @@
  *        data.
  * @note Enabled by default.
  */
-#define MY_REGISTRATION_FEATURE
+//#define MY_REGISTRATION_FEATURE
 
 /**
  * @def MY_REGISTRATION_RETRIES
