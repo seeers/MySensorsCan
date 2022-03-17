@@ -777,6 +777,7 @@ void transportProcessFIFO(void)
 	if (hwMillis() - _lastSanityCheck > MY_TRANSPORT_SANITY_CHECK_INTERVAL_MS) {
 		_lastSanityCheck = hwMillis();
 		transportInvokeSanityCheck();
+		sendHeartbeat();
 	}
 #endif
 

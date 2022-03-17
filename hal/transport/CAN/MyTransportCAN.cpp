@@ -1,25 +1,27 @@
-#include "hal/transport/CAN/driver/mcp_can.h"
-#include "hal/transport/CAN/driver/mcp_can.cpp"
 #include "MyTransportCAN.h"
+
+#include "hal/transport/CAN/driver/mcp_can.cpp"
+#include "hal/transport/CAN/driver/mcp_can.h"
 #if defined(MY_DEBUG_VERBOSE_CAN)
-#define CAN_DEBUG(x,...)	DEBUG_OUTPUT(x, ##__VA_ARGS__)	//!< Debug print
+#define CAN_DEBUG(x, ...) DEBUG_OUTPUT(x, ##__VA_ARGS__) //!< Debug print
 #else
-#define CAN_DEBUG(x,...)	//!< DEBUG null
+#define CAN_DEBUG(x, ...) //!< DEBUG null
 #endif
 MCP_CAN CAN0(CAN_CS);
-bool canInitialized=false;
+bool canInitialized = false;
 
-//input buffer for raw data (from library).
+// input buffer for raw data (from library).
 long unsigned int rxId;
 unsigned char len = 0;
 unsigned char rxBuf[8];
 unsigned char _nodeId;
 
-//message id updated for every outgoing mesage
-uint8_t message_id =0;
+// message id updated for every outgoing mesage
+uint8_t message_id = 0;
 
-//buffer element
-typedef struct {
+// buffer element
+typedef struct
+{
 	uint8_t len;
 	uint8_t data[MAX_MESSAGE_SIZE];
 	uint8_t address;
@@ -30,54 +32,57 @@ typedef struct {
 	bool ready;
 } CAN_Packet;
 
-//buffer
+// buffer
 CAN_Packet packets[CAN_BUF_SIZE];
 
-//filter incoming messages (MCP2515 feature).
+// filter incoming messages (MCP2515 feature).
 bool _initFilters()
 {
 	CAN_DEBUG(PSTR("CAN:INIT:FIL\n"));
-	#if defined(MY_NODE_ID)
-		_nodeId = MY_NODE_ID;
-	#endif
-	if (!canInitialized) {
+#if defined(MY_NODE_ID)
+	_nodeId = MY_NODE_ID;
+#endif
+	if (!canInitialized)
+	{
 		return false;
 	}
 	uint8_t err = 0;
 	err += CAN0.setMode(MODE_CONFIG);
 
-	err += CAN0.init_Mask(0, 1, 0x0000FF00);                // Init first mask. Only destination address will be used to filter messages
-	err += CAN0.init_Filt(0, 1, BROADCAST_ADDRESS << 8);      // Init first filter. Accept broadcast messages.
-	err += CAN0.init_Filt(1, 1, _nodeId << 8);                // Init second filter. Accept messages send to this node.
-	//second mask and filters need to be set. Otherwise all messages would be accepted.
-	err += CAN0.init_Mask(1, 1, 0xFFFFFFFF);                // Init second mask.
-	err += CAN0.init_Filt(2, 1, 0xFFFFFFFF);                // Init third filter.
-	err += CAN0.init_Filt(3, 1, 0xFFFFFFFF);                // Init fourth filter.
-	err += CAN0.init_Filt(4, 1, 0xFFFFFFFF);                // Init fifth filter.
-	err += CAN0.init_Filt(5, 1, 0xFFFFFFFF);                // Init sixth filter.
+	err += CAN0.init_Mask(0, 1, 0x0000FF00);			 // Init first mask. Only destination address will be used to filter messages
+	err += CAN0.init_Filt(0, 1, BROADCAST_ADDRESS << 8); // Init first filter. Accept broadcast messages.
+	err += CAN0.init_Filt(1, 1, _nodeId << 8);			 // Init second filter. Accept messages send to this node.
+	// second mask and filters need to be set. Otherwise all messages would be accepted.
+	err += CAN0.init_Mask(1, 1, 0xFFFFFFFF); // Init second mask.
+	err += CAN0.init_Filt(2, 1, 0xFFFFFFFF); // Init third filter.
+	err += CAN0.init_Filt(3, 1, 0xFFFFFFFF); // Init fourth filter.
+	err += CAN0.init_Filt(4, 1, 0xFFFFFFFF); // Init fifth filter.
+	err += CAN0.init_Filt(5, 1, 0xFFFFFFFF); // Init sixth filter.
 	err += CAN0.setMode(MCP_NORMAL);
 	hwPinMode(CAN_INT, INPUT);
-	CAN_DEBUG(PSTR("CAN:INIT:FIL:DONE:ID=%" PRIu8 "\n"),_nodeId);
+	CAN_DEBUG(PSTR("CAN:INIT:FIL:DONE:ID=%" PRIu8 "\n"), _nodeId);
 	return err == 0;
 }
 
 bool transportInit(void)
 {
 	CAN_DEBUG(PSTR("CAN:INIT:CS=%" PRIu8 ",INT=%" PRIu8 ",SPE=%" PRIu8 ",CLO=%" PRIu8 "\n"), CAN_CS,
-	          CAN_INT, CAN_SPEED, CAN_CLOCK);
+			  CAN_INT, CAN_SPEED, CAN_CLOCK);
 
-	if (CAN0.begin(MCP_STDEXT, CAN_SPEED, CAN_CLOCK) != CAN_OK) {
+	if (CAN0.begin(MCP_STDEXT, CAN_SPEED, CAN_CLOCK) != CAN_OK)
+	{
 		canInitialized = false;
 		return false;
 	}
 	canInitialized = true;
-	for (uint8_t i = 0; i < CAN_BUF_SIZE; i++) {
+	for (uint8_t i = 0; i < CAN_BUF_SIZE; i++)
+	{
 		_cleanSlot(i);
 	}
 	return _initFilters();
 }
 
-//clear single slot in buffer.
+// clear single slot in buffer.
 void _cleanSlot(uint8_t slot)
 {
 	packets[slot].locked = false;
@@ -89,26 +94,33 @@ void _cleanSlot(uint8_t slot)
 	packets[slot].ready = false;
 }
 
-//find empty slot in buffer
+// find empty slot in buffer
 uint8_t _findCanPacketSlot()
 {
 	uint8_t slot = CAN_BUF_SIZE;
 	uint8_t i;
-	for (i = 0; i < CAN_BUF_SIZE; i++) {
-		if (packets[i].locked) {
+	for (i = 0; i < CAN_BUF_SIZE; i++)
+	{
+		if (packets[i].locked)
+		{
 			packets[i].age++;
-		} else {
+		}
+		else
+		{
 			slot = i;
+			packets[i].age = 0;
+			return slot;
 		}
 	}
-	if (slot < CAN_BUF_SIZE) {
-		return slot;
-	}
-	//if empty slot not found. Clear oldest message.
+
+	// if empty slot not found. Clear oldest message.
 	slot = 0;
-	for (i = 1; i < CAN_BUF_SIZE; i++) {
-		if (packets[i].age > packets[slot].age) {
+	for (i = 1; i < CAN_BUF_SIZE; i++)
+	{
+		if (packets[i].age > packets[slot].age)
+		{
 			slot = i;
+			packets[i].age = 0;
 		}
 	}
 	_cleanSlot(slot);
@@ -117,19 +129,23 @@ uint8_t _findCanPacketSlot()
 	return slot;
 }
 
-//find slot with previous data parts.
+// find slot with previous data parts.
 uint8_t _findCanPacketSlot(long unsigned int from, long unsigned int currentPart,
-                           long unsigned int messageId)
+						   long unsigned int messageId)
 {
 	uint8_t slot = CAN_BUF_SIZE;
 	uint8_t i;
-	for (i = 0; i < CAN_BUF_SIZE; i++) {
-		if (packets[i].locked && packets[i].address == from && packets[i].packetId  == messageId &&
-		        packets[i].lastReceivedPart == currentPart ) {
+	for (i = 0; i < CAN_BUF_SIZE; i++)
+	{
+		if (packets[i].locked && packets[i].address == from && packets[i].packetId == messageId &&
+			packets[i].lastReceivedPart == currentPart && packets[i].age < 16) //Do not use packages older than 16 receives!!! Maybe smaller value!
+		{
 			slot = i;
+			return slot;
 		}
 	}
-	if (slot == CAN_BUF_SIZE) {
+	if (slot == CAN_BUF_SIZE)
+	{
 		CAN_DEBUG(PSTR("!CAN:RCV:proper slot not found\n"));
 	}
 	return slot;
@@ -148,70 +164,89 @@ uint8_t _findCanPacketSlot(long unsigned int from, long unsigned int currentPart
 // header model (32 bits)
 // HIJG FEEE DDDD CCCC BBBB BBBB AAAA AAAA
 long unsigned int _buildHeader(uint8_t messageId, uint8_t totalPartCount, uint8_t currentPartNumber,
-                               uint8_t toAddress, uint8_t fromAddress)
+							   uint8_t toAddress, uint8_t fromAddress)
 {
 	long unsigned int header =
-	    0x80; // set H=1 (FIXED), I=0 (FIXED), J=0 (FIXED), G=0 (To be implemented), F=0 (To be implemented)
-	header += (messageId & 0x07); //set messageId
+		0x80;					  // set H=1 (FIXED), I=0 (FIXED), J=0 (FIXED), G=0 (To be implemented), F=0 (To be implemented)
+	header += (messageId & 0x07); // set messageId
 	header = header << 4;
-	header += (totalPartCount & 0x0F);//set total part count
+	header += (totalPartCount & 0x0F); // set total part count
 	header = header << 4;
-	header += (currentPartNumber & 0x0F);//set current part number
+	header += (currentPartNumber & 0x0F); // set current part number
 	header = header << 8;
-	header += toAddress;//set destination address
+	header += toAddress; // set destination address
 	header = header << 8;
-	header += fromAddress;//set source address
+	header += fromAddress; // set source address
 	CAN_DEBUG(PSTR("CAN:SND:CANH=%" PRIu32 ",ID=%" PRIu8
-	               ",TOTAL=%"PRIu8",CURR=%"PRIu8",TO=%"PRIu8",FROM=%"PRIu8"\n"), header, messageId, totalPartCount,
-	          currentPartNumber, toAddress, fromAddress);
+				   ",TOTAL=%" PRIu8 ",CURR=%" PRIu8 ",TO=%" PRIu8 ",FROM=%" PRIu8 "\n"),
+			  header, messageId, totalPartCount,
+			  currentPartNumber, toAddress, fromAddress);
 	return header;
 }
 
 bool transportSend(const uint8_t to, const void *data, const uint8_t len, const bool noACK)
 {
-	(void) noACK;    // some ack is provided by CAN itself. TODO implement application layer ack.
+	(void)noACK; // some ack is provided by CAN itself. TODO implement application layer ack.
 	const char *datap = static_cast<char const *>(data);
-	//calculate number of frames
+	// calculate number of frames
 	uint8_t noOfFrames = len / 8;
-	if (len % 8 != 0) {
+	if (len % 8 != 0)
+	{
 		noOfFrames++;
 	}
-	//update message_id
+	// update message_id
 	message_id++;
-	//make sure message_id isn't longer than 3 bits.
+	// make sure message_id isn't longer than 3 bits.
 	message_id = message_id & 0x07;
 
 	CAN_DEBUG(PSTR("CAN:SND:LN=%" PRIu8 ",NOF=%" PRIu8 "\n"), len, noOfFrames);
 	uint8_t currentFrame;
-	for (currentFrame = 0; currentFrame < noOfFrames; currentFrame++) {
+	for (currentFrame = 0; currentFrame < noOfFrames; currentFrame++)
+	{
 		uint8_t partLen;
-		if (len <= 8) {
+		if (len <= 8)
+		{
 			partLen = len;
-		} else if (currentFrame * 8 <= len) {
+		}
+		else if (currentFrame * 8 <= len)
+		{
 			partLen = 8;
-		} else {
+		}
+		else
+		{
 			partLen = len % 8;
 		}
 		uint8_t buff[8];
 		uint8_t j = 0;
 		//        memcpy(buff,datap[currentFrame*8],partLen);
-		for (j = 0; j < partLen; j++) {
+		for (j = 0; j < partLen; j++)
+		{
 			buff[j] = datap[currentFrame * 8 + j];
 		}
 
 		CAN_DEBUG(PSTR("CAN:SND:LN=%" PRIu8 ",DTA0=%" PRIu8 ",DTA1=%" PRIu8 ",DTA2=%" PRIu8 ",DTA3=%" PRIu8
-		               ",DTA4=%" PRIu8 ",DTA5=%" PRIu8 ",DTA6=%" PRIu8 ",DTA7=%" PRIu8 "\n"), partLen, buff[0],
-		          buff[1],
-		          buff[2], buff[3], buff[4], buff[5], buff[6], buff[7]);
+					   ",DTA4=%" PRIu8 ",DTA5=%" PRIu8 ",DTA6=%" PRIu8 ",DTA7=%" PRIu8 "\n"),
+				  partLen, buff[0],
+				  buff[1],
+				  buff[2], buff[3], buff[4], buff[5], buff[6], buff[7]);
 
 		byte sndStat = CAN0.sendMsgBuf(_buildHeader(message_id, noOfFrames, currentFrame, to, _nodeId),
-		                               partLen, buff);
-		if (sndStat == CAN_OK) {
-			CAN_DEBUG(PSTR("CAN:SND:OK cFrame:%" PRIu8 "\n"),currentFrame);
-			if (currentFrame == noOfFrames-1)
-			return true;
-		} else {
-			CAN_DEBUG(PSTR("!CAN:SND:FAIL:sndStat%" PRIu8 "\n"),sndStat);
+									   partLen, buff);
+		if (sndStat == CAN_OK)
+		{
+			CAN_DEBUG(PSTR("CAN:SND:OK cFrame:%" PRIu8 "\n"), currentFrame);
+			if (currentFrame == noOfFrames - 1)
+				return true;
+		}
+		else if (sndStat == CAN_SENDMSGTIMEOUT)
+		{
+			CAN_DEBUG(PSTR("!CAN:SND:TIMO:sndStat%" PRIu8 "\n"), sndStat);
+			if (currentFrame == noOfFrames - 1)
+				return true;
+		}
+		else
+		{
+			CAN_DEBUG(PSTR("!CAN:SND:FAIL:sndStat%" PRIu8 "\n"), sndStat);
 			return false;
 		}
 	}
@@ -219,10 +254,10 @@ bool transportSend(const uint8_t to, const void *data, const uint8_t len, const 
 
 bool transportDataAvailable(void)
 {
-	
-	if (!hwDigitalRead(CAN_INT)) {                       // If CAN_INT pin is low, read receive buffer
-	    CAN_DEBUG(PSTR("CAN:CHK:REC\n"));
-		CAN0.readMsgBuf(&rxId, &len, rxBuf);      // Read data: len = data length, buf = data byte(s)
+	if (!hwDigitalRead(CAN_INT))
+	{ // If CAN_INT pin is low, read receive buffer
+		CAN_DEBUG(PSTR("CAN:CHK:REC\n"));
+		CAN0.readMsgBuf(&rxId, &len, rxBuf); // Read data: len = data length, buf = data byte(s)
 		long unsigned int from = (rxId & 0x000000FF);
 		// cppcheck-suppress unreadVariable
 		long unsigned int to = (rxId & 0x0000FF00) >> 8;
@@ -230,29 +265,41 @@ bool transportDataAvailable(void)
 		long unsigned int totalPartCount = (rxId & 0x00F00000) >> 20;
 		long unsigned int messageId = (rxId & 0x07000000) >> 24;
 		CAN_DEBUG(PSTR("CAN:RCV:CANH=%" PRIu32 ",ID=%" PRIu32
-		               ",TOTAL=%"PRIu32",CURR=%"PRIu32",TO=%"PRIu32",FROM=%"PRIu32"\n"), rxId, messageId,
-		          totalPartCount,
-		          currentPart, to, from);
+					   ",TOTAL=%" PRIu32 ",CURR=%" PRIu32 ",TO=%" PRIu32 ",FROM=%" PRIu32 "\n"),
+				  rxId, messageId,
+				  totalPartCount,
+				  currentPart, to, from);
 		uint8_t slot;
-		if (currentPart == 0) {
+		if (currentPart == 0)
+		{
 			slot = _findCanPacketSlot();
 			packets[slot].locked = true;
 			packets[slot].packetId = messageId;
 			packets[slot].address = from;
-		} else {
+		}
+		else
+		{
 			slot = _findCanPacketSlot(from, currentPart, messageId);
 		}
-		if (slot != CAN_BUF_SIZE) {
+		if (slot != CAN_BUF_SIZE)
+		{
 			memcpy(packets[slot].data + packets[slot].len, rxBuf, len);
 			packets[slot].lastReceivedPart++;
 			packets[slot].len += len;
 			CAN_DEBUG(PSTR("CAN:RCV:SLOT=%" PRIu8 ",PART=%" PRIu8 "\n"), slot, packets[slot].lastReceivedPart);
-			if (packets[slot].lastReceivedPart == totalPartCount) {
+			if (packets[slot].lastReceivedPart == totalPartCount)
+			{
 				packets[slot].ready = true;
 				CAN_DEBUG(PSTR("CAN:RCV:SLOT=%" PRIu8 " complete\n"), slot);
+/* NUR ZUM TESTEN DES SLOT PROBLEMS, muss wieder raus!!!!
+				uint8_t i;
+				for (i = 0; i < CAN_BUF_SIZE; i++)
+				{
+					CAN_DEBUG(PSTR("CAN:INF:SLOT=%" PRIu8 ",Age=%" PRIu8 ",Locked=%" PRIu8 "\n"), i, packets[i].age, packets[i].locked);
+				}
+*/
 				return true;
 			}
-
 		}
 	}
 	return false;
@@ -262,17 +309,22 @@ uint8_t transportReceive(void *data)
 {
 	uint8_t slot = CAN_BUF_SIZE;
 	uint8_t i;
-	for (i = 0; i < CAN_BUF_SIZE; i++) {
-		if (packets[i].ready) {
+	for (i = 0; i < CAN_BUF_SIZE; i++)
+	{
+		if (packets[i].ready)
+		{
 			slot = i;
 		}
 	}
-	if (slot < CAN_BUF_SIZE) {
+	if (slot < CAN_BUF_SIZE)
+	{
 		memcpy(data, packets[slot].data, packets[slot].len);
 		i = packets[slot].len;
 		_cleanSlot(slot);
 		return i;
-	} else {
+	}
+	else
+	{
 		return (0);
 	}
 }
@@ -352,6 +404,6 @@ int16_t transportGetTxPowerLevel(void)
 bool transportSetTxPowerPercent(const uint8_t powerPercent)
 {
 	// not possible
-	(void) powerPercent;
+	(void)powerPercent;
 	return false;
 }
